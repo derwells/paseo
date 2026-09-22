@@ -242,6 +242,7 @@ function buildAgentManagerSpies() {
     appendTimelineItem: vi.fn().mockResolvedValue(undefined),
     emitLiveTimelineItem: vi.fn().mockResolvedValue(undefined),
     hasInFlightRun: vi.fn().mockReturnValue(false),
+    steerOrReplaceActiveTurn: async () => ({ status: "inactive" as const }),
     tryRunOutOfBand: vi.fn().mockReturnValue(false),
     subscribe: vi.fn().mockReturnValue(() => {}),
     streamAgent: vi.fn(() => (async function* noop() {})()),
@@ -3860,6 +3861,7 @@ const HELD_TURN_CAPABILITIES = {
 } as const;
 
 interface HeldTurnOptions {
+  steerResult?: "accepted" | "unavailable";
   /** Run the whole turn before the turn-start request returns. */
   finishTurnsDuringStart?: boolean;
 }
@@ -3872,6 +3874,7 @@ class HeldTurnAgentSession implements AgentSession {
   readonly capabilities = HELD_TURN_CAPABILITIES;
   readonly id = randomUUID();
   readonly prompts: string[] = [];
+  readonly steeredPrompts: AgentPromptInput[] = [];
   private readonly subscribers = new Set<(event: AgentStreamEvent) => void>();
   private activeTurnId: string | null = null;
   private turnStartGate: Promise<void> | null = null;
@@ -3902,6 +3905,12 @@ class HeldTurnAgentSession implements AgentSession {
 
   tryHandleOutOfBand(prompt: AgentPromptInput) {
     return prompt === "/side-command" ? { run: async () => {} } : null;
+  }
+
+  async steerActiveTurn(prompt: AgentPromptInput) {
+    const status = this.options.steerResult ?? "unavailable";
+    if (status === "accepted") this.steeredPrompts.push(prompt);
+    return { status };
   }
 
   async startTurn(prompt: AgentPromptInput): Promise<{ turnId: string }> {
@@ -4050,6 +4059,66 @@ class HeldTurnAgentClient implements AgentClient {
 }
 
 describe("send_agent_prompt MCP tool", () => {
+  it.each([
+    { agentScoped: true, behavior: undefined, available: true, steered: true },
+    { agentScoped: true, behavior: "interrupt", available: true, steered: false },
+    { agentScoped: true, behavior: "steer", available: true, steered: true },
+    { agentScoped: false, behavior: undefined, available: true, steered: false },
+    { agentScoped: false, behavior: "steer", available: true, steered: true },
+    { agentScoped: true, behavior: undefined, available: false, steered: false },
+  ] as const)(
+    "dispatches behavior $behavior for agent-scoped=$agentScoped, steering available=$available",
+    async ({ agentScoped, behavior, available, steered }) => {
+      const workdir = await mkdtemp(join(tmpdir(), "mcp-send-behavior-"));
+      const storage = new AgentStorage(join(workdir, "agents"), logger);
+      const client = new HeldTurnAgentClient("codex", true, {
+        steerResult: available ? "accepted" : "unavailable",
+      });
+      const manager = new AgentManager({ clients: { codex: client }, registry: storage, logger });
+      try {
+        const parent = await manager.createAgent(
+          { provider: "codex", cwd: existingCwd },
+          undefined,
+          { workspaceId: "wks_parent" },
+        );
+        const child = await manager.createAgent(
+          { provider: "codex", cwd: existingCwd },
+          undefined,
+          { workspaceId: "wks_parent" },
+        );
+        const server = await createAgentMcpServer({
+          agentManager: manager,
+          agentStorage: storage,
+          callerAgentId: agentScoped ? parent.id : undefined,
+          providerSnapshotManager: createOpenCodeManager().manager,
+          logger,
+        });
+        const tool = registeredTool(server, "send_agent_prompt");
+        await invokeToolWithParsedInput(tool, {
+          agentId: child.id,
+          prompt: "Original work",
+          notifyOnFinish: false,
+        });
+        const originalTurn = manager.getAgent(child.id)!.activeTurnId;
+        const response = await invokeToolWithParsedInput(tool, {
+          agentId: child.id,
+          prompt: "New message",
+          notifyOnFinish: false,
+          ...(behavior ? { activeTurnBehavior: behavior } : {}),
+        });
+        expect(response.structuredContent).toMatchObject({
+          success: true,
+          disposition: steered ? "steered" : "turn_started",
+        });
+        expect(client.sessions[1]!.prompts).toHaveLength(steered ? 1 : 2);
+        expect(client.sessions[1]!.steeredPrompts).toHaveLength(steered ? 1 : 0);
+        expect(manager.getAgent(child.id)!.activeTurnId === originalTurn).toBe(steered);
+      } finally {
+        await removeAgentStateDir(manager, storage, workdir);
+      }
+    },
+  );
+
   const logger = createTestLogger();
   const existingCwd = process.cwd();
 
