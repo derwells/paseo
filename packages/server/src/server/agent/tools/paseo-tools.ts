@@ -4,7 +4,7 @@ import type { Logger } from "pino";
 
 import type { AgentMode, AgentProvider, AgentSessionConfig } from "../agent-sdk-types.js";
 import type { AgentManager } from "../agent-manager.js";
-import { AgentProfileSchema } from "@getpaseo/protocol/messages";
+import { ActiveTurnBehaviorSchema, AgentProfileSchema } from "@getpaseo/protocol/messages";
 import type { DaemonConfigStore } from "../../daemon-config-store.js";
 import {
   AgentFeatureSchema,
@@ -1110,6 +1110,11 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
   };
   const agentToAgentSendAgentPromptInputSchema = {
     ...commonSendAgentPromptInputSchema,
+    activeTurnBehavior: ActiveTurnBehaviorSchema.optional()
+      .default("steer")
+      .describe(
+        'How to handle a turn the target agent is already running. "steer" (default) delivers the prompt into the running turn without cancelling it. "interrupt" cancels the active turn and its subagents first.',
+      ),
     background: z
       .boolean()
       .optional()
@@ -1127,6 +1132,11 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
   };
   const topLevelSendAgentPromptInputSchema = {
     ...commonSendAgentPromptInputSchema,
+    activeTurnBehavior: ActiveTurnBehaviorSchema.optional()
+      .default("interrupt")
+      .describe(
+        'How to handle a turn the target agent is already running. "interrupt" (default) cancels the active turn and its subagents first. "steer" delivers the prompt into the running turn without cancelling it.',
+      ),
     background: z
       .boolean()
       .optional()
@@ -1870,7 +1880,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     {
       title: "Send agent prompt",
       description:
-        "Send a task to a running agent. Agent-scoped callers run in background by default; top-level callers wait by default.",
+        'Send a task to a running agent. Agent-scoped callers run in background by default; top-level callers wait by default. activeTurnBehavior decides what happens when the target is mid-turn: "steer" delivers the prompt into the running turn without cancelling it, "interrupt" cancels the active turn and its subagents first. Agent-scoped callers default to "steer", top-level callers to "interrupt".',
       inputSchema: sendAgentPromptInputSchema,
       outputSchema: {
         success: z.boolean(),
@@ -1886,6 +1896,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       sessionMode,
       background = Boolean(callerAgentId),
       notifyOnFinish = Boolean(callerAgentId),
+      activeTurnBehavior = callerAgentId ? "steer" : "interrupt",
     }) => {
       const shouldNotifyOnFinish = Boolean(callerAgentId && notifyOnFinish && background);
 
@@ -1895,6 +1906,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         agentId,
         prompt,
         sessionMode,
+        activeTurnBehavior,
         logger: childLogger,
       });
 
