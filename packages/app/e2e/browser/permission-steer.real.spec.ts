@@ -19,7 +19,7 @@ const scenarios = [
   },
   {
     provider: "codex" as const,
-    providerConfig: { model: "gpt-5.6-sol", featureValues: { plan_mode: true } },
+    providerConfig: { model: "gpt-6-sol", featureValues: { plan_mode: true } },
     planPrompt:
       "Produce a concise implementation plan with exactly these steps: Inspect permission steering; Implement permission steering; Verify permission steering. Do not implement it.",
     planText: "Inspect permission steering",

@@ -46,7 +46,7 @@ async function expectContextAfterWorkspaceRestore(legacyNativeArchive: boolean):
       config: {
         provider: "codex",
         cwd,
-        model: "gpt-5.6-sol",
+        model: "gpt-6-sol",
         modeId: "full-access",
         thinkingOptionId: "low",
       },

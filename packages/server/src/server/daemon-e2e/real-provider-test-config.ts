@@ -28,9 +28,9 @@ const CLAUDE_REAL_TEST_MODEL = "haiku";
 const CODEX_REAL_TEST_MODEL = "~openai/gpt-latest";
 const OPENCODE_REAL_TEST_MODEL = "openrouter/google/gemini-2.5-flash-lite";
 const PI_OPENROUTER_REAL_TEST_MODEL = "openrouter/google/gemini-2.5-flash-lite";
-const PI_CODEX_REAL_TEST_MODEL = "openai-codex/gpt-5.4";
+const PI_CODEX_REAL_TEST_MODEL = "openai-codex/gpt-6-luna";
 const OMP_OPENROUTER_REAL_TEST_MODEL = "openrouter/google/gemini-2.5-flash-lite";
-const OMP_CODEX_REAL_TEST_MODEL = "openai-codex/gpt-5.6-sol";
+const OMP_CODEX_REAL_TEST_MODEL = "openai-codex/gpt-6-sol";
 
 const availabilityCache = new Map<RealProvider, Promise<boolean>>();
 
