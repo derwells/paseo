@@ -1971,8 +1971,8 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       activeTurnBehavior = callerAgentId ? "steer" : "interrupt",
     }) => {
       let stopNotification: (() => void) | undefined;
-      let acceptDispatch!: (accepted: boolean) => void;
-      const dispatchAccepted = new Promise<boolean>((resolve) => {
+      let acceptDispatch!: (result: PromptDispatchDisposition | false) => void;
+      const dispatchResult = new Promise<PromptDispatchDisposition | false>((resolve) => {
         acceptDispatch = resolve;
       });
       const notifying = Boolean(callerAgentId && notifyOnFinish);
@@ -1982,8 +1982,8 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
           agentStorage,
           childAgentId: agentId,
           callerAgentId,
-          waitForTurnStart: activeTurnBehavior !== "steer",
-          dispatchAccepted,
+          waitForTurnStart: false,
+          dispatchResult,
           logger: childLogger,
         });
       }
@@ -1991,10 +1991,10 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         // A new turn must ignore outcomes from the displaced turn. Its iterator
         // has not started yet, so rearm here; steering keeps the early observer.
         if (disposition !== "turn_started") {
-          acceptDispatch(true);
+          acceptDispatch(disposition);
           return;
         }
-        acceptDispatch(false);
+        acceptDispatch(disposition);
         if (!callerAgentId || !notifyOnFinish) return;
         stopNotification?.();
         stopNotification = setupFinishNotification({
