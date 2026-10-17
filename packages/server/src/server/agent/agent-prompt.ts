@@ -402,6 +402,8 @@ export interface SetupFinishNotificationParams {
   childAgentId: string;
   callerAgentId: string;
   requireParentOwnership?: boolean;
+  /** Buffer notifications until dispatch succeeds; false discards this observation. */
+  dispatchAccepted?: Promise<boolean>;
   /** A replacement must observe its new start, not the displaced running snapshot. */
   waitForTurnStart?: boolean;
   logger: Logger;
@@ -507,6 +509,7 @@ export function setupFinishNotification(params: SetupFinishNotificationParams): 
     reason: FinishNotificationReason,
     permissionRequest?: AgentPermissionRequest,
   ): Promise<void> {
+    if (params.dispatchAccepted && !(await params.dispatchAccepted)) return;
     const callerRecord = await agentStorage.get(callerAgentId);
     if (callerRecord?.archivedAt) {
       return;
