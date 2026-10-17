@@ -1,3 +1,4 @@
+import { setupFinishNotification, type PromptDispatchDisposition } from "./agent-prompt.js";
 import { parseAgentMessage } from "./agent-messages/index.js";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -4259,6 +4260,89 @@ describe("send_agent_prompt MCP tool", () => {
           client.sessions[1]!.finishTurn();
         }
         await vi.waitFor(() => expect(client.sessions[0]!.prompts).toHaveLength(1));
+        expect(parseAgentMessage(client.sessions[0]!.prompts[0])).toMatchObject({
+          source: { kind: "agent-notification", agentId: child.id, event: "finished" },
+        });
+      } finally {
+        await mcpClient?.close();
+        await removeAgentStateDir(manager, storage, workdir);
+      }
+    },
+  );
+
+  it.each([
+    [false, true],
+    [true, false],
+    [false, false],
+    [true, true],
+  ])(
+    "overlapping follow-ups notify once (first accepted: %s, second accepted: %s)",
+    async (firstAccepted, secondAccepted) => {
+      const workdir = await mkdtemp(join(tmpdir(), "mcp-send-behavior-"));
+      const storage = new AgentStorage(join(workdir, "agents"), logger);
+      const client = new HeldTurnAgentClient("codex", true, {
+        steerResult: "accepted",
+        finishDuringSteer: false,
+        rejectSteer: true,
+      });
+      const manager = new AgentManager({ clients: { codex: client }, registry: storage, logger });
+      let mcpClient: Client | undefined;
+      try {
+        const parent = await manager.createAgent(
+          { provider: "codex", cwd: existingCwd },
+          undefined,
+          {
+            workspaceId: "wks_parent",
+          },
+        );
+        const child = await manager.createAgent(
+          { provider: "codex", cwd: existingCwd },
+          undefined,
+          {
+            workspaceId: "wks_parent",
+          },
+        );
+        const server = await createAgentMcpServer({
+          agentManager: manager,
+          agentStorage: storage,
+          callerAgentId: parent.id,
+          providerSnapshotManager: createOpenCodeManager().manager,
+          logger,
+        });
+        mcpClient = await connectInMemoryMcpClient(server);
+        const send = (input: Record<string, unknown>) =>
+          mcpClient!.callTool({ name: "send_agent_prompt", arguments: input });
+        await send({
+          agentId: child.id,
+          prompt: "Original work",
+          notifyOnFinish: true,
+        });
+        let firstResolve!: (result: PromptDispatchDisposition | false) => void;
+        let secondResolve!: (result: PromptDispatchDisposition | false) => void;
+        const first = new Promise<PromptDispatchDisposition | false>((resolve) => {
+          firstResolve = resolve;
+        });
+        const second = new Promise<PromptDispatchDisposition | false>((resolve) => {
+          secondResolve = resolve;
+        });
+        for (const dispatchResult of [first, second]) {
+          setupFinishNotification({
+            agentManager: manager,
+            agentStorage: storage,
+            childAgentId: child.id,
+            callerAgentId: parent.id,
+            dispatchResult,
+            logger,
+          });
+        }
+        firstResolve(firstAccepted ? "steered" : false);
+        await first;
+        secondResolve(secondAccepted ? "steered" : false);
+        await second;
+        client.sessions[1]!.finishTurn();
+        await vi.waitFor(() => expect(client.sessions[0]!.prompts).toHaveLength(1));
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(client.sessions[0]!.prompts).toHaveLength(1);
         expect(parseAgentMessage(client.sessions[0]!.prompts[0])).toMatchObject({
           source: { kind: "agent-notification", agentId: child.id, event: "finished" },
         });
